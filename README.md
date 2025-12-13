@@ -1,4 +1,5 @@
-# rock-3a-debian-11-k8s
+# rock-3a-ubuntu-22.04.5-k8s-cluster-setup
+
 This is the sanitized version of all the scripts I ran (but in a single script) to get the master node of my k8s cluster going
 
 Few things:
