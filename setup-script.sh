@@ -1,113 +1,67 @@
 #!/bin/bash
 set -e
 
-# =====================================================
-# Step 0 - Before anything - let's get whatever updates are available
-# =====================================================
+# Colored output
+GREEN="\033[0;32m"
+YELLOW="\033[1;33m"
+RED="\033[0;31m"
+NC="\033[0m"
 
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y ca-certificates curl gnupg lsb-release
-sudo reboot
+echo -e "${GREEN}==> Updating OS and installing prerequisites...${NC}"
+sudo apt update
+sudo apt upgrade -y
+sudo apt install -y curl gnupg2 software-properties-common apt-transport-https ca-certificates lsb-release
 
+echo -e "${GREEN}==> Removing any old or conflicting repositories...${NC}"
+sudo rm -f /etc/apt/sources.list.d/radxa*.list
+sudo rm -f /etc/apt/sources.list.d/*jammy*
+sudo apt clean
 
-# =====================================================
-# Alright > Kubernetes Control Plane Setup Script (Debian 11 ARM)
-# =====================================================
+echo -e "${GREEN}==> Setting up Docker repository for containerd...${NC}"
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt update
 
-echo "==> Starting Kubernetes Control Plane Setup"
+echo -e "${GREEN}==> Installing containerd...${NC}"
+sudo apt install -y containerd.io
+sudo systemctl enable --now containerd
 
-# -----------------------------
-# 1 Configure containerd
-# -----------------------------
-echo "==> Configuring containerd..."
+echo -e "${GREEN}==> Configuring containerd for Kubernetes...${NC}"
 sudo mkdir -p /etc/containerd
-if [ ! -f /etc/containerd/config.toml ]; then
-    containerd config default | sudo tee /etc/containerd/config.toml
-    sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-fi
+containerd config default | sudo tee /etc/containerd/config.toml
 sudo systemctl restart containerd
-sudo systemctl enable containerd
 
-# -----------------------------
-# 2 Disable swap (I don't think I needed this. But every other guide has you do this. There was no swap with my image maybe I took care of this I did this setup over many tries)
-# -----------------------------
-echo "==> Disabling swap..."
+echo -e "${GREEN}==> Disabling swap...${NC}"
 sudo swapoff -a
-sudo sed -i '/ swap / s/^/#/' /etc/fstab
+sudo sed -i.bak '/swap/d' /etc/fstab
 
-# -----------------------------
-# 3️ Load kernel modules
-# -----------------------------
-echo "==> Loading kernel modules..."
-for module in overlay br_netfilter; do
-    sudo modprobe $module
-done
-cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
-overlay
-br_netfilter
-EOF
-
-# -----------------------------
-# 4️ Apply sysctl settings
-# -----------------------------
-echo "==> Applying sysctl settings for Kubernetes..."
-cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
-net.bridge.bridge-nf-call-iptables  = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-net.ipv4.ip_forward                 = 1
-EOF
-sudo sysctl --system
-
-# -----------------------------
-# 5️ Install Kubernetes components
-# -----------------------------
-echo "==> Installing Kubernetes components..."
+echo -e "${GREEN}==> Setting up Kubernetes repository...${NC}"
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
 sudo apt update
-sudo apt install -y apt-transport-https curl
 
-# Add Kubernetes APT repository if not already present
-if [ ! -f /etc/apt/sources.list.d/kubernetes.list ]; then
-    curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
-    echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
-fi
-
-sudo apt update
+echo -e "${GREEN}==> Installing Kubernetes components...${NC}"
 sudo apt install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
-
 sudo systemctl enable kubelet
-sudo systemctl start kubelet
 
-# -----------------------------
-# 6️ Initialize Kubernetes control plane
-# -----------------------------
-KUBEADM_CONFIG="/etc/kubernetes/admin.conf"
-if [ ! -f "$KUBEADM_CONFIG" ]; then
-    echo "==> Initializing Kubernetes control plane..."
-    sudo kubeadm init --pod-network-cidr=10.244.0.0/16
+if [ ! -f /etc/kubernetes/admin.conf ]; then
+    echo -e "${GREEN}==> Initializing Kubernetes master node...${NC}"
+    read -p "$(echo -e ${YELLOW}Enter pod network CIDR (default 10.244.0.0/16):${NC} )" POD_CIDR
+    POD_CIDR=${POD_CIDR:-10.244.0.0/16}
+    sudo kubeadm init --pod-network-cidr=$POD_CIDR
+
+    mkdir -p $HOME/.kube
+    sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+    sudo chown $(id -u):$(id -g) $HOME/.kube/config
 fi
 
-# -----------------------------
-# 7️ Configure kubeconfig for user
-# -----------------------------
-echo "==> Configuring kubeconfig for user..."
-mkdir -p $HOME/.kube
-sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-sudo chown $(id -u):$(id -g) $HOME/.kube/config
+echo -e "${GREEN}==> Applying Flannel CNI network...${NC}"
+kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
 
-# -----------------------------
-# 8️ Deploy Flannel Pod network
-# -----------------------------
-if ! kubectl get pods -n kube-flannel &>/dev/null; then
-    echo "==> Deploying Flannel Pod network..."
-    kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
-fi
-
-# -----------------------------
-# 9️ Verify cluster status
-# -----------------------------
-echo "==> Verifying cluster status..."
-kubectl get nodes
+echo -e "${GREEN}==> Kubernetes master setup complete!${NC}"
+echo -e "${YELLOW}Use 'kubeadm token create --print-join-command' to get the join command for worker nodes.${NC}"
+kubectl get nodes -o wide
 kubectl get pods -A
-
-echo "==> Kubernetes Control Plane setup completed successfully!"
