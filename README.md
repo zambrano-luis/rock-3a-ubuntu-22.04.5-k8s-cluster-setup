@@ -8,17 +8,12 @@ Few things:
 - I got my image from here: https://github.com/radxa-build/rock-3a/releases/tag/b25
 - Or more specifically https://github.com/radxa-build/rock-3a/releases/download/b25/rock-3a_ubuntu_jammy_cli_b25.img.xz
 
-2. I had to clean up some of the repos with
-
-sudo rm /etc/apt/sources.list.d/radxa*.list
-sudo apt update
-
-3. When you download your file remember to "chmod +x whatever-you-call-the-file-setup.sh"
+2. When you download your file remember to "chmod +x whatever-you-call-the-file-setup.sh"
 
 4. One script is the setup for the master node - this does not set up or help the worker nodes join that you would have to do separately
-- Run the next script on the master to get the join command you need to run on the workers when the workers are set up and save it somewhere or run it again I guess!
-- kubeadm token create --print-join-command
 
-5. Disclaimer: I am NOT a kubernetes expert (yet) I know what it is, I know why it exists, but I can't explain everything that goes on hence me creating this.
+5. The second script is for the worker node which actually does the joinining. Do this after setting up master node.
 
-6. I am creating the script for the worker node setup later
+Notes: 
+- I am NOT a kubernetes expert (yet) I know what it is, I know why it exists, but I can't explain everything that goes on hence me creating this.
+- Also the scripts are colored and interactive take note on what you are filling in I would also do one node at the time
