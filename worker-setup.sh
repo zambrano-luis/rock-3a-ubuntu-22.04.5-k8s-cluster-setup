@@ -14,6 +14,20 @@ RESET=$(tput sgr0)
 echo "${BLUE}==> Worker node bootstrap starting...${RESET}"
 
 # ----------------------------
+# 0. Fix Radxa broken repos
+# ----------------------------
+
+
+echo "==> Removing Radxa repository (not required for Kubernetes)..."
+
+sudo rm -f /etc/apt/sources.list.d/radxa*.list
+sudo rm -f /usr/share/keyrings/radxa-archive-keyring.gpg
+sudo rm -f /etc/apt/trusted.gpg.d/radxa*.gpg
+
+sudo apt clean
+
+
+# ----------------------------
 # 1. Ask for hostname
 # ----------------------------
 read -rp "$(echo -e ${YELLOW}Enter desired hostname for this worker: ${RESET})" WORKER_HOSTNAME
