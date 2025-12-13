@@ -17,7 +17,6 @@ echo "${BLUE}==> Worker node bootstrap starting...${RESET}"
 # 0. Fix Radxa broken repos
 # ----------------------------
 
-
 echo "==> Removing Radxa repository (not required for Kubernetes)..."
 
 sudo rm -f /etc/apt/sources.list.d/radxa*.list
@@ -52,6 +51,24 @@ fi
 echo "${BLUE}==> Updating OS and installing prerequisites...${RESET}"
 sudo apt update
 sudo apt install -y ca-certificates curl gnupg lsb-release software-properties-common apt-transport-https
+
+echo "==> Adding Docker APT repository..."
+
+sudo mkdir -p /etc/apt/keyrings
+
+if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+    | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+fi
+
+if [ ! -f /etc/apt/sources.list.d/docker.list ]; then
+  echo \
+"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+https://download.docker.com/linux/ubuntu jammy stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+fi
+
+sudo apt update
 
 # ----------------------------
 # 4. Install containerd
