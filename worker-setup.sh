@@ -1,111 +1,138 @@
 #!/usr/bin/env bash
+set -e
 
-# ============================
-# Worker Node Setup for K8s
-# ============================
-
-# Colors for terminal output
-RED=$(tput setaf 1)
-GREEN=$(tput setaf 2)
-YELLOW=$(tput setaf 3)
-BLUE=$(tput setaf 4)
-RESET=$(tput sgr0)
-
-echo "${BLUE}==> Worker node bootstrap starting...${RESET}"
-
-# ----------------------------
-# 0. Fix Radxa broken repos
-# ----------------------------
-
-echo "==> Removing Radxa repository (not required for Kubernetes)..."
-
-sudo rm -f /etc/apt/sources.list.d/radxa*.list
-sudo rm -f /usr/share/keyrings/radxa-archive-keyring.gpg
-sudo rm -f /etc/apt/trusted.gpg.d/radxa*.gpg
-
-sudo apt clean
-
-
-# ----------------------------
-# 1. Ask for hostname
-# ----------------------------
-read -rp "$(echo -e ${YELLOW}Enter desired hostname for this worker: ${RESET})" WORKER_HOSTNAME
-echo "${GREEN}Setting hostname to $WORKER_HOSTNAME${RESET}"
-sudo hostnamectl set-hostname "$WORKER_HOSTNAME"
-sudo sed -i.bak "/127.0.1.1/c\127.0.1.1 $WORKER_HOSTNAME" /etc/hosts || true
-
-# ----------------------------
-# 2. Disable swap
-# ----------------------------
-echo "${BLUE}==> Disabling swap...${RESET}"
-sudo swapoff -a
-sudo sed -i.bak '/swap/d' /etc/fstab
-if systemctl list-unit-files | grep -q zramswap; then
-    sudo systemctl disable --now zramswap.service
-    sudo swapoff /dev/zram0 || true
+# -------- Colors --------
+if [ -t 1 ]; then
+  RED='\033[0;31m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
+  BLUE='\033[0;34m'
+  NC='\033[0m'
+else
+  RED='' GREEN='' YELLOW='' BLUE='' NC=''
 fi
 
-# ----------------------------
-# 3. Update OS and install prerequisites
-# ----------------------------
-echo "${BLUE}==> Updating OS and installing prerequisites...${RESET}"
-sudo apt update
-sudo apt install -y ca-certificates curl gnupg lsb-release software-properties-common apt-transport-https
+info()    { echo -e "${BLUE}==> $*${NC}"; }
+success() { echo -e "${GREEN}✔ $*${NC}"; }
+warn()    { echo -e "${YELLOW}⚠ $*${NC}"; }
+error()   { echo -e "${RED}✖ $*${NC}"; }
 
-echo "==> Adding Docker APT repository..."
-
-sudo mkdir -p /etc/apt/keyrings
-
-if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-    | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+# -------- Root check --------
+if [ "$EUID" -ne 0 ]; then
+  error "Run this script with sudo"
+  exit 1
 fi
 
-if [ ! -f /etc/apt/sources.list.d/docker.list ]; then
-  echo \
-"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-https://download.docker.com/linux/ubuntu jammy stable" \
-  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+echo
+info "Kubernetes WORKER node bootstrap starting"
+echo
+
+# -------- Hostname --------
+read -rp "Enter desired hostname for this worker: " WORKER_HOSTNAME
+if [ -n "$WORKER_HOSTNAME" ]; then
+  info "Setting hostname to $WORKER_HOSTNAME"
+  hostnamectl set-hostname "$WORKER_HOSTNAME"
+  sed -i "/127.0.1.1/d" /etc/hosts
+  echo "127.0.1.1 $WORKER_HOSTNAME" >> /etc/hosts
 fi
 
-sudo apt update
+# -------- Remove Radxa repos (critical) --------
+info "Removing Radxa repositories if present"
+rm -f /etc/apt/sources.list.d/radxa*.list
+rm -f /usr/share/keyrings/radxa-archive-keyring.gpg
+rm -f /etc/apt/trusted.gpg.d/radxa*.gpg
+success "Radxa repos cleaned"
 
-# ----------------------------
-# 4. Install containerd
-# ----------------------------
-echo "${BLUE}==> Installing containerd...${RESET}"
-sudo apt remove -y containerd containerd.io || true
-sudo apt update
-sudo apt install -y containerd
+# -------- Disable swap --------
+info "Disabling swap"
+swapoff -a || true
+sed -i.bak '/swap/d' /etc/fstab || true
+systemctl disable --now zramswap.service 2>/dev/null || true
+success "Swap disabled"
 
-# Configure containerd
-sudo mkdir -p /etc/containerd
-sudo containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
-sudo systemctl restart containerd
-sudo systemctl enable containerd
+# -------- Kernel modules --------
+info "Configuring kernel modules"
+cat <<EOF >/etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
 
-# ----------------------------
-# 5. Set up Kubernetes repo
-# ----------------------------
-echo "${BLUE}==> Setting up Kubernetes repository...${RESET}"
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
-sudo apt update
+modprobe overlay || true
+modprobe br_netfilter || true
 
-# ----------------------------
-# 6. Install Kubernetes components
-# ----------------------------
-echo "${BLUE}==> Installing kubelet, kubeadm, kubectl...${RESET}"
-sudo apt install -y kubelet kubeadm kubectl
-sudo apt-mark hold kubelet kubeadm kubectl
-sudo systemctl enable kubelet
+# -------- Sysctl --------
+info "Configuring sysctl for Kubernetes"
+cat <<EOF >/etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward = 1
+EOF
 
-# ----------------------------
-# 7. Join Kubernetes cluster
-# ----------------------------
-read -rp "$(echo -e ${YELLOW}Enter the full kubeadm join command for this worker: ${RESET})" KUBEADM_JOIN_CMD
-echo "${GREEN}Joining the Kubernetes cluster...${RESET}"
-sudo $KUBEADM_JOIN_CMD
+sysctl --system >/dev/null
+success "Kernel networking configured"
 
-echo "${GREEN}Worker node bootstrap complete!${RESET}"
+# -------- Packages --------
+info "Installing base packages"
+apt update
+apt install -y \
+  ca-certificates \
+  curl \
+  gnupg \
+  lsb-release \
+  apt-transport-https \
+  software-properties-common
+
+# -------- containerd --------
+info "Installing containerd (Ubuntu repo)"
+apt install -y containerd
+
+mkdir -p /etc/containerd
+containerd config default > /etc/containerd/config.toml
+
+# Use systemd cgroups
+sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' \
+  /etc/containerd/config.toml
+
+systemctl restart containerd
+systemctl enable containerd
+success "containerd installed and configured"
+
+# -------- Kubernetes repo --------
+info "Setting up Kubernetes repository"
+mkdir -p /etc/apt/keyrings
+
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key \
+  | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+cat <<EOF >/etc/apt/sources.list.d/kubernetes.list
+deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] \
+https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /
+EOF
+
+apt update
+
+# -------- Kubernetes packages --------
+info "Installing Kubernetes components"
+apt install -y kubelet kubeadm kubectl
+apt-mark hold kubelet kubeadm kubectl
+
+systemctl enable kubelet
+success "Kubernetes components installed"
+
+# -------- Reset if needed --------
+if [ -f /etc/kubernetes/kubelet.conf ]; then
+  warn "Existing Kubernetes config found – resetting node"
+  kubeadm reset -f
+fi
+
+# -------- Join cluster --------
+echo
+read -rp "Enter the FULL kubeadm join command: " JOIN_CMD
+echo
+
+info "Joining the Kubernetes cluster"
+eval "$JOIN_CMD"
+
+success "Worker node successfully joined"
+echo
+info "Reboot recommended"
