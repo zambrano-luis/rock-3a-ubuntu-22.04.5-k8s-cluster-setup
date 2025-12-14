@@ -69,6 +69,12 @@ The script will:
 
 ⚡ Ensure the master is ready and reachable before running this script.
 
+4️⃣ Network Add-On (Flannel)
+
+After the master node is ready:
+
+kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+
 📝 **Notes**
 
 * The scripts are interactive and colorized. Pay attention to prompts.
