@@ -1,19 +1,77 @@
-# rock-3a-ubuntu-22.04.5-k8s-cluster-setup
+🪨 **rock-3a-ubuntu-22.04.5-k8s-cluster-setup**
 
-This is the sanitized version of all the scripts I ran (but in a single script) to get the master node of my k8s cluster going
+A sanitized, interactive, and colorized script setup for deploying a Kubernetes cluster on Rock 3A ARM boards.
 
-Few things:
+⚠️ **Note:** This is a personal setup guide. Not all edge cases are handled. Follow prompts carefully and do one node at a time.
 
-1. Image
-- I got my image from here: https://github.com/radxa-build/rock-3a/releases/tag/b25
-- Or more specifically https://github.com/radxa-build/rock-3a/releases/download/b25/rock-3a_ubuntu_jammy_cli_b25.img.xz
+🧩 **Overview**
 
-2. When you download your file remember to "chmod +x whatever-you-call-the-file-setup.sh"
+This project includes:
 
-4. One script is the setup for the master node - this does not set up or help the worker nodes join that you would have to do separately
+* **Master Node Setup Script:** Initializes the Kubernetes master node.
+* **Worker Node Setup Script:** Prepares a worker node and joins it to the cluster.
 
-5. The second script is for the worker node which actually does the joinining. Do this after setting up master node.
+**The scripts:**
 
-Notes: 
-- I am NOT a kubernetes expert (yet) I know what it is, I know why it exists, but I can't explain everything that goes on hence me creating this.
-- Also the scripts are colored and interactive take note on what you are filling in I would also do one node at the time
+* Set hostnames interactively
+* Disable swap and configure kernel modules/sysctl
+* Install containerd v1.7.28 consistently across all nodes
+* Install kubeadm, kubelet, and kubectl
+* Join worker nodes to the master automatically
+
+🚀 **Getting Started**
+
+**1️⃣ Download the Base Image**
+
+Rock 3A Ubuntu Jammy CLI image:
+
+* GitHub Releases
+* Direct Download
+
+Make your scripts executable:
+
+```bash
+chmod +x master-setup.sh
+chmod +x worker-setup.sh
+```
+
+**2️⃣ Master Node Setup**
+
+Run the master setup script first:
+
+```bash
+sudo ./master-setup.sh
+```
+
+It will:
+
+* Prompt for the master node hostname
+* Disable swap
+* Configure kernel modules and sysctl
+* Install containerd and Kubernetes components
+* Initialize the master node
+* Provide the kubeadm join command for workers
+
+**3️⃣ Worker Node Setup**
+
+On each worker node, run:
+
+```bash
+sudo ./worker-setup.sh
+```
+
+The script will:
+
+* Prompt for the worker node hostname
+* Disable swap and configure kernel modules/sysctl
+* Install containerd and Kubernetes components
+* Join the node to the cluster
+
+⚡ Ensure the master is ready and reachable before running this script.
+
+📝 **Notes**
+
+* The scripts are interactive and colorized. Pay attention to prompts.
+* Do one node at a time to prevent conflicts.
+* This setup assumes all nodes are on the same local network.
+* Containerd version is pinned to 1.7.28 for consistency across nodes.
