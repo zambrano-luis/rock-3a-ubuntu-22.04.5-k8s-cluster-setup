@@ -81,3 +81,4 @@ kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Doc
 * Do one node at a time to prevent conflicts.
 * This setup assumes all nodes are on the same local network.
 * Containerd version is pinned to 1.7.28 for consistency across nodes.
+* Yes, you COULD ssh directly from the master into the workers and use a different set of scripts, so why didn't I do that? It was just simpler for me to do it this way and with this number of nodes.
