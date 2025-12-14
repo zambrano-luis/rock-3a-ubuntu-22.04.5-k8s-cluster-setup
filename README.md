@@ -25,8 +25,8 @@ This project includes:
 
 Rock 3A Ubuntu Jammy CLI image:
 
-* GitHub Releases
-* Direct Download
+* GitHub Releases: https://github.com/radxa-build/rock-3a/releases/tag/b25
+* Direct Download: https://github.com/radxa-build/rock-3a/releases/download/b25/rock-3a_ubuntu_jammy_cli_b25.img.xz
 
 Make your scripts executable:
 
